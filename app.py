@@ -7,11 +7,11 @@ import io
 import os
 from sklearn.ensemble import RandomForestClassifier
 
-# --- MODEL TRAINING LOGIC ---
+# --- MODEL TRAINING LOGIC (FIXED FOR KEYERROR) ---
 @st.cache_resource
 def load_or_train_model():
+    # Pehle koshish karein purana model load karne ki
     try:
-        # Pehle check karein agar purana model kaam kar raha hai
         if os.path.exists("heart_model.pkl"):
             with open("heart_model.pkl", "rb") as f:
                 model = pickle.load(f)
@@ -19,23 +19,27 @@ def load_or_train_model():
     except:
         pass
     
-    # Agar model nahi hai ya fail hua, toh CSV se train karein
+    # Agar model fail ho jaye, toh CSV se train karein
     if os.path.exists("heart_disease.csv"):
         df = pd.read_csv("heart_disease.csv")
         
-        # Target column dhoondne ka smart tarika (Target, target, ya aakhri column)
-        if 'Target' in df.columns:
-            target_col = 'Target'
-        elif 'target' in df.columns:
-            target_col = 'target'
+        # Target column dhoondne ka logic: 
+        # Check karein 'Target', 'target', 'Outcome' ya phir last column
+        cols = [c for c in df.columns if c.lower() == 'target' or c.lower() == 'outcome']
+        if cols:
+            target_col = cols[0]
         else:
-            target_col = df.columns[-1] # Sabse aakhri column ko target maan lo
+            target_col = df.columns[-1] # Agar kuch na mile toh aakhri column le lo
             
-        X = df.drop(target_col, axis=1)
+        X = df.drop(columns=[target_col])
         y = df[target_col]
         
+        # Simple Model training
         model = RandomForestClassifier(n_estimators=100, random_state=42)
         model.fit(X, y)
+        
+        # Feature names ko save kar lena taaki prediction mein error na aaye
+        model.feature_names_in_ = list(X.columns)
         return model
     return None
 
@@ -98,29 +102,34 @@ with col2:
 
 if st.button("Generate Complete Report"):
     if model is None:
-        st.error("Model train nahi ho paya. Please check heart_disease.csv file.")
+        st.error("Error: CSV file nahi mili ya model train nahi ho paya.")
     else:
         mapping = {"Male": 1, "Female": 0, "Yes": 1, "No": 0, "Low": 0, "Medium": 1, "High": 2}
+        
+        # Sabhi inputs ko number mein convert karna
         input_data = [[age, mapping[gender], bp, chol, mapping[exercise], mapping[smoke], mapping[family], mapping[diabetes], bmi, mapping[hbp], mapping[lhdl], mapping[hldl], mapping[alc], mapping[stress], sleep, mapping[sugar], tri, fbs, crp, homo]]
         
-        # Columns match karna zaroori hai
+        # Columns match karwana
         input_df = pd.DataFrame(input_data, columns=model.feature_names_in_)
         
+        # Predict result
         pred = model.predict(input_df)[0]
         prob = model.predict_proba(input_df)[0][1] * 100
         
         res_text, color = ("HIGH RISK DETECTED", "red") if pred == 1 else ("LOW RISK / NORMAL", "green")
-        advice = ["Possibility of Arterial Blockage."] if pred == 1 else ["Heart condition stable."]
-        diet = ["Avoid Trans-fats."] if pred == 1 else ["Maintain fiber intake."]
-        meds = ["Consult doctor."] if pred == 1 else ["Annual check-up."]
+        advice = ["Possibility of Arterial Blockage."] if pred == 1 else ["Heart condition is stable."]
+        diet = ["Avoid Trans-fats and high salt."] if pred == 1 else ["Maintain fiber and protein balance."]
+        meds = ["Consult a cardiologist immediately."] if pred == 1 else ["No immediate medication required."]
 
-        st.markdown(f"### Result: <span style='color:{color}'>{res_text}</span>", unsafe_allow_html=True)
+        st.markdown(f"### Diagnosis: <span style='color:{color}'>{res_text}</span>", unsafe_allow_html=True)
+        
         fig, ax = plt.subplots(figsize=(6, 2))
-        ax.barh(['Risk Score'], [prob], color=color)
+        ax.barh(['Risk Level'], [prob], color=color)
         ax.set_xlim(0, 100)
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         buf.seek(0)
         st.pyplot(fig)
+        
         pdf_bytes = create_advanced_report(p_name, age, res_text, round(prob, 2), advice, diet, meds, buf)
-        st.download_button(f"📥 Download Report", pdf_bytes, f"Report.pdf", "application/pdf")
+        st.download_button(f"📥 Download Report for {p_name}", pdf_bytes, f"{p_name}_Report.pdf", "application/pdf")
