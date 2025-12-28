@@ -6,8 +6,11 @@ import matplotlib.pyplot as plt
 import io
 import os
 
-# Model load karein
-model = pickle.load(open("heart_model.pkl", "rb"))
+# Model load karne ka try-except block (Taaki error samajh aaye)
+try:
+    model = pickle.load(open("heart_model.pkl", "rb"))
+except Exception as e:
+    st.error(f"Model file load nahi ho rahi: {e}")
 
 def create_advanced_report(name, age, res, prob, advice, diet, meds, graph_buf):
     pdf = FPDF()
@@ -38,7 +41,8 @@ def create_advanced_report(name, age, res, prob, advice, diet, meds, graph_buf):
             pdf.multi_cell(0, 8, f"- {item}")
         pdf.ln(3)
 
-    os.remove(temp_graph)
+    if os.path.exists(temp_graph):
+        os.remove(temp_graph)
     return pdf.output(dest="S").encode("latin-1")
 
 st.set_page_config(page_title="Heart AI Pro", layout="wide")
@@ -74,60 +78,64 @@ with col2:
     homo = st.number_input("Homocysteine Level", value=15.0)
 
 if st.button("Generate Complete Report"):
-    # --- MAPPING: Text ko Numbers mein badalna ---
+    # Text ko numbers mein convert karna (Wahi format jo model ko chahiye)
     mapping = {"Male": 1, "Female": 0, "Yes": 1, "No": 0, "Low": 0, "Medium": 1, "High": 2}
     
-    input_data = [
-        age, 
-        mapping[gender], 
-        bp, 
-        chol, 
-        mapping[exercise], 
-        mapping[smoke], 
-        mapping[family], 
-        mapping[diabetes], 
-        bmi, 
-        mapping[hbp], 
-        mapping[lhdl], 
-        mapping[hldl], 
-        mapping[alc], 
-        mapping[stress], 
-        sleep, 
-        mapping[sugar], 
-        tri, 
-        fbs, 
-        crp, 
-        homo
-    ]
+    input_data = {
+        'Age': [age],
+        'Gender': [mapping[gender]],
+        'Blood Pressure': [bp],
+        'Cholesterol Level': [chol],
+        'Exercise Habits': [mapping[exercise]],
+        'Smoking': [mapping[smoke]],
+        'Family Heart Disease': [mapping[family]],
+        'Diabetes': [mapping[diabetes]],
+        'BMI': [bmi],
+        'High Blood Pressure': [mapping[hbp]],
+        'Low HDL Cholesterol': [mapping[lhdl]],
+        'High LDL Cholesterol': [mapping[hldl]],
+        'Alcohol Consumption': [mapping[alc]],
+        'Stress Level': [mapping[stress]],
+        'Sleep Hours': [sleep],
+        'Sugar Consumption': [mapping[sugar]],
+        'Triglyceride Level': [tri],
+        'Fasting Blood Sugar': [fbs],
+        'CRP Level': [crp],
+        'Homocysteine Level': [homo]
+    }
 
-    input_df = pd.DataFrame([input_data], 
-                            columns=['Age', 'Gender', 'Blood Pressure', 'Cholesterol Level', 'Exercise Habits', 'Smoking', 'Family Heart Disease', 'Diabetes', 'BMI', 'High Blood Pressure', 'Low HDL Cholesterol', 'High LDL Cholesterol', 'Alcohol Consumption', 'Stress Level', 'Sleep Hours', 'Sugar Consumption', 'Triglyceride Level', 'Fasting Blood Sugar', 'CRP Level', 'Homocysteine Level'])
+    input_df = pd.DataFrame(input_data)
     
-    # Prediction
-    pred = model.predict(input_df)[0]
-    prob = model.predict_proba(input_df)[0][1] * 100
-    
-    # Result Logic
-    if pred == 1:
-        res_text, color = "HIGH RISK DETECTED", "red"
-        advice = ["Possibility of Arterial Blockage.", "Future Risk: Cardiac Arrest or Stroke."]
-        diet = ["Avoid Trans-fats and excessive salt.", "Include Omega-3 rich foods like walnuts."]
-        meds = ["Consult doctor for Statins or Beta-blockers.", "Monitor BP every 4 hours."]
-    else:
-        res_text, color = "LOW RISK / NORMAL", "green"
-        advice = ["Heart condition is currently stable.", "No immediate future risk detected."]
-        diet = ["Maintain balanced fiber intake.", "Continue existing healthy diet."]
-        meds = ["No specific medication needed.", "Annual check-up is sufficient."]
+    try:
+        # Prediction calculation
+        pred = model.predict(input_df)[0]
+        prob = model.predict_proba(input_df)[0][1] * 100
+        
+        # UI Results
+        if pred == 1:
+            res_text, color = "HIGH RISK DETECTED", "red"
+            advice = ["Possibility of Arterial Blockage.", "Future Risk: Cardiac Arrest or Stroke."]
+            diet = ["Avoid Trans-fats and excessive salt.", "Include Omega-3 rich foods like walnuts."]
+            meds = ["Consult doctor for Statins or Beta-blockers.", "Monitor BP every 4 hours."]
+        else:
+            res_text, color = "LOW RISK / NORMAL", "green"
+            advice = ["Heart condition is currently stable.", "No immediate future risk detected."]
+            diet = ["Maintain balanced fiber intake.", "Continue existing healthy diet."]
+            meds = ["No specific medication needed.", "Annual check-up is sufficient."]
 
-    st.markdown(f"### Result: {res_text}")
-    
-    fig, ax = plt.subplots(figsize=(6, 2))
-    ax.barh(['Risk Score'], [prob], color='red' if prob > 50 else 'green')
-    ax.set_xlim(0, 100)
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
-    buf.seek(0)
-    st.pyplot(fig)
-    
-    pdf_bytes = create_advanced_report(p_name, age, res_text, round(prob, 2), advice, diet, meds, buf)
-    st.download_button(f"📥 Download Report for {p_name}", pdf_bytes, f"{p_name}_Report.pdf", "application/pdf")
+        st.markdown(f"### Result: <span style='color:{color}'>{res_text}</span>", unsafe_allow_html=True)
+        
+        fig, ax = plt.subplots(figsize=(6, 2))
+        ax.barh(['Risk Score'], [prob], color='red' if prob > 50 else 'green')
+        ax.set_xlim(0, 100)
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        st.pyplot(fig)
+        
+        pdf_bytes = create_advanced_report(p_name, age, res_text, round(prob, 2), advice, diet, meds, buf)
+        st.download_button(f"📥 Download Report for {p_name}", pdf_bytes, f"{p_name}_Report.pdf", "application/pdf")
+
+    except Exception as e:
+        st.error(f"Prediction ke waqt error aaya: {e}")
+        st.info("Technical Tip: Model file aur input columns match nahi kar rahe.")
