@@ -17,8 +17,9 @@ def train_models():
             if df[col].dtype == 'object':
                 df[col] = pd.factorize(df[col])[0]
         df = df.fillna(0)
-        X = df.drop(df.columns[-1], axis=1)
-        y = df[df.columns[-1]]
+        target = df.columns[-1]
+        X = df.drop(target, axis=1)
+        y = df[target]
         rf = RandomForestClassifier(n_estimators=100, random_state=42).fit(X, y)
         lr = LogisticRegression(max_iter=1000).fit(X, y)
         dt = DecisionTreeClassifier(random_state=42).fit(X, y)
@@ -34,53 +35,63 @@ if rf_model is not None:
     
     st.subheader("📋 Enter Clinical Data")
     user_inputs = {}
-    cols = st.columns(3)
-    
-    # Yes/No Mapping
     binary_cols = ['High Blood Pressure', 'High LDL Cholesterol', 'Smoking', 'Diabetes', 'Exercise Habits', 'Family Heart Disease', 'Alcohol Consumption']
+    
+    # Form layout
+    with st.form("diagnostic_form"):
+        cols = st.columns(3)
+        for i, col_name in enumerate(feature_cols):
+            with cols[i % 3]:
+                if col_name in binary_cols:
+                    choice = st.selectbox(f"{col_name}", options=["No", "Yes"], key=f"input_{col_name}")
+                    user_inputs[col_name] = 1 if choice == "Yes" else 0
+                else:
+                    avg_val = float(raw_df[col_name].mean())
+                    user_inputs[col_name] = st.number_input(f"{col_name}", value=avg_val, key=f"input_{col_name}")
+        
+        # Submit Button inside the form
+        submitted = st.form_submit_button("Generate Diagnostic Report")
 
-    for i, col_name in enumerate(feature_cols):
-        with cols[i % 3]:
-            if col_name in binary_cols:
-                choice = st.selectbox(f"{col_name}", options=["No", "Yes"], key=col_name)
-                user_inputs[col_name] = 1 if choice == "Yes" else 0
-            else:
-                avg_val = float(raw_df[col_name].mean())
-                user_inputs[col_name] = st.number_input(f"{col_name}", value=avg_val, key=col_name)
-
-    if st.button("Generate Diagnostic Report & Graph"):
+    if submitted:
         if p_name:
             input_data = np.array([user_inputs[c] for c in feature_cols]).reshape(1, -1)
+            
+            # Predictions
             rf_p = rf_model.predict_proba(input_data)[0][1] * 100
             lr_p = lr_model.predict_proba(input_data)[0][1] * 100
             dt_p = dt_model.predict_proba(input_data)[0][1] * 100
-
-            # 1. Comparison Table
-            st.subheader(f"📊 Model Analysis for {p_name}")
-            res_df = pd.DataFrame({
-                "Algorithm": ["Random Forest", "Logistic Regression", "Decision Tree"],
-                "Risk Score (%)": [rf_p, lr_p, dt_p]
-            })
-            st.table(res_df)
-
-            # 2. Patient Graph
-            fig, ax = plt.subplots()
-            ax.bar(res_df["Algorithm"], res_df["Risk Score (%)"], color=['red', 'blue', 'green'])
-            ax.set_ylabel("Risk Percentage (%)")
-            ax.set_title("Patient Heart Risk Comparison")
-            st.pyplot(fig)
-
-            # 3. Final Verdict
+            
+            # Show Results
+            st.success(f"Analysis Complete for {p_name}!")
+            
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                st.write("### 📊 Model Comparison")
+                res_df = pd.DataFrame({
+                    "Algorithm": ["Random Forest", "Logistic Regression", "Decision Tree"],
+                    "Risk Score (%)": [f"{rf_p:.1f}%", f"{lr_p:.1f}%", f"{dt_p:.1f}%"]
+                })
+                st.table(res_df)
+            
+            with c2:
+                st.write("### 📈 Risk Visualization")
+                fig, ax = plt.subplots()
+                ax.bar(["RF", "LR", "DT"], [rf_p, lr_p, dt_p], color=['red', 'blue', 'green'])
+                ax.set_ylabel("Risk %")
+                st.pyplot(fig)
+            
+            # Final Verdict
             if rf_p > 30:
                 st.error(f"### ⚠️ HIGH RISK DETECTED: {rf_p:.1f}%")
-                report_status = "High Risk"
+                status = "HIGH RISK"
             else:
                 st.success(f"### ✅ NORMAL CONDITION: {rf_p:.1f}%")
-                report_status = "Normal"
-
-            # 4. Download Report Feature
-            report_text = f"HEART DIAGNOSTIC REPORT\nPatient: {p_name}\nStatus: {report_status}\nRF Risk: {rf_p:.1f}%\nLR Risk: {lr_p:.1f}%\nDT Risk: {dt_p:.1f}%"
-            st.download_button("📥 Download Patient Report", data=report_text, file_name=f"{p_name}_Report.txt")
-
+                status = "NORMAL"
+                
+            # Download Button
+            report_txt = f"Patient: {p_name}\nStatus: {status}\nRF: {rf_p:.1f}%\nLR: {lr_p:.1f}%\nDT: {dt_p:.1f}%"
+            st.download_button("📥 Download Report", data=report_txt, file_name=f"{p_name}_Report.txt")
+        else:
+            st.warning("Please enter patient name.")
 else:
-    st.error("Check CSV file on GitHub.")
+    st.error("Error: Check CSV file.")
